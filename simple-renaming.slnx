@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="simple-renaming/simple-renaming.vcxproj" />
+  <Project Path="simple-renaming/simple-renaming.vcxproj" Id="6683d7de-209b-43a0-a6c1-11400ea8f83a" />
 </Solution>
