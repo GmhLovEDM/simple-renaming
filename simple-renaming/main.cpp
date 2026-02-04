@@ -6,6 +6,9 @@
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <string>
+#include <vector>
+#include <cwctype>
 
 #pragma comment(lib, "Ole32.lib")
 #pragma comment(lib, "Shell32.lib")
@@ -17,7 +20,7 @@
 #define APP_NAME L"SimpleRenamer"
 
 // ==========================
-// ºËĞÄÂß¼­£º»ñÈ¡Â·¾¶
+// æ ¸å¿ƒé€»è¾‘ï¼šè·å–è·¯å¾„
 // ==========================
 std::wstring GetSelectedPath()
 {
@@ -83,9 +86,104 @@ std::wstring GetSelectedPath()
     return {};
 }
 
+struct AppConfig
+{
+    std::wstring timeFormat = L"%y%m%d%H%M";
+    UINT hotkeyModifiers = 0;
+    UINT hotkeyKey = VK_F9;
+};
+
+std::wstring GetConfigPath()
+{
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    std::filesystem::path exePath(path);
+    return (exePath.parent_path() / L"SimpleRenamer.ini").wstring();
+}
+
+std::wstring ToUpper(const std::wstring& input)
+{
+    std::wstring out = input;
+    for (auto& ch : out) ch = (wchar_t)towupper(ch);
+    return out;
+}
+
+std::wstring Trim(const std::wstring& input)
+{
+    size_t start = 0;
+    while (start < input.size() && iswspace(input[start])) ++start;
+    size_t end = input.size();
+    while (end > start && iswspace(input[end - 1])) --end;
+    return input.substr(start, end - start);
+}
+
+bool ParseHotkey(const std::wstring& hotkey, UINT& modifiers, UINT& key)
+{
+    modifiers = 0;
+    key = 0;
+
+    size_t start = 0;
+    while (start < hotkey.size())
+    {
+        size_t end = hotkey.find(L'+', start);
+        if (end == std::wstring::npos) end = hotkey.size();
+        std::wstring token = Trim(hotkey.substr(start, end - start));
+        token = ToUpper(token);
+
+        if (token == L"CTRL" || token == L"CONTROL") modifiers |= MOD_CONTROL;
+        else if (token == L"ALT") modifiers |= MOD_ALT;
+        else if (token == L"SHIFT") modifiers |= MOD_SHIFT;
+        else if (token == L"WIN" || token == L"WINDOWS") modifiers |= MOD_WIN;
+        else if (!token.empty())
+        {
+            if (token.size() == 1)
+            {
+                wchar_t ch = token[0];
+                if ((ch >= L'A' && ch <= L'Z') || (ch >= L'0' && ch <= L'9'))
+                {
+                    key = VkKeyScanW(ch) & 0xFF;
+                }
+            }
+            else if (token[0] == L'F')
+            {
+                int fn = _wtoi(token.c_str() + 1);
+                if (fn >= 1 && fn <= 24)
+                {
+                    key = VK_F1 + (fn - 1);
+                }
+            }
+        }
+
+        start = end + 1;
+    }
+
+    return key != 0;
+}
+
+AppConfig LoadConfig()
+{
+    AppConfig config;
+    std::wstring configPath = GetConfigPath();
+
+    wchar_t buffer[256];
+    GetPrivateProfileStringW(L"Settings", L"TimeFormat", config.timeFormat.c_str(), buffer, 256, configPath.c_str());
+    config.timeFormat = buffer;
+
+    GetPrivateProfileStringW(L"Settings", L"Hotkey", L"F9", buffer, 256, configPath.c_str());
+    UINT modifiers = 0;
+    UINT key = 0;
+    if (ParseHotkey(buffer, modifiers, key))
+    {
+        config.hotkeyModifiers = modifiers;
+        config.hotkeyKey = key;
+    }
+
+    return config;
+}
+
 // ==========================
-// ÖØÃüÃûÂß¼­
-// ==========================
+void Rename(const std::wstring& oldPath, const std::wstring& timeFormat)
+    ss << std::put_time(&tm, timeFormat.c_str());
 void Rename(const std::wstring& oldPath)
 {
     namespace fs = std::filesystem;
@@ -110,7 +208,7 @@ void Rename(const std::wstring& oldPath)
 }
 
 // ==========================
-// ¿ª»ú×ÔÆôÂß¼­
+// å¼€æœºè‡ªå¯é€»è¾‘
 // ==========================
 bool IsAutoRun()
 {
@@ -146,7 +244,7 @@ void SetAutoRun(bool enable)
 }
 
 // ==========================
-// ½çÃæÂß¼­
+// ç•Œé¢é€»è¾‘
 // ==========================
 void ToggleTray(HWND hwnd, DWORD msg)
 {
@@ -166,9 +264,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
         HMENU hMenu = CreatePopupMenu();
         bool isRun = IsAutoRun();
-        AppendMenu(hMenu, MF_STRING | (isRun ? MF_CHECKED : 0), IDM_AUTORUN, L"¿ª»ú×ÔÆô");
-        AppendMenu(hMenu, MF_SEPARATOR, 0, nullptr);
-        AppendMenu(hMenu, MF_STRING, IDM_EXIT, L"ÍË³ö");
+    AppConfig config = LoadConfig();
+
+    if (!RegisterHotKey(nullptr, 1, config.hotkeyModifiers, config.hotkeyKey))
+    {
+        RegisterHotKey(nullptr, 1, 0, VK_F9);
+    }
+            if (!path.empty()) Rename(path, config.timeFormat);
+        AppendMenu(hMenu, MF_STRING, IDM_EXIT, L"é€€å‡º");
 
         int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, nullptr);
         DestroyMenu(hMenu);
@@ -185,7 +288,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 }
 
 // ==========================
-// ³ÌĞòÈë¿Ú
+// ç¨‹åºå…¥å£
 // ==========================
 int WINAPI WinMain(_In_ HINSTANCE hInst, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int)
 {
